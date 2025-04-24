@@ -1,28 +1,45 @@
 const express = require('express');
-const cors = require('cors'); // Add CORS package
+const cors = require('cors');
+const multer = require('multer'); // Add multer
 const { spawn } = require('child_process');
 const fs = require('fs');
 const app = express();
 
 // Enable CORS for your frontend origin
 app.use(cors({
-  origin: 'https://assemblepoint.onrender.com', // Allow only your frontend domain
-  methods: ['POST'], // Allow only POST requests
-  allowedHeaders: ['Content-Type'] // Allow Content-Type header for FormData
+  origin: 'https://assemblepoint.onrender.com',
+  methods: ['POST'],
+  allowedHeaders: ['Content-Type']
 }));
 
-// Middleware to handle raw video data
-app.use(express.raw({ type: 'application/octet-stream', limit: '50mb' }));
+// Configure multer to handle multipart/form-data
+const upload = multer({
+  storage: multer.memoryStorage(), // Store file in memory as a Buffer
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+});
 
-app.post('/process', (req, res) => {
-  const inputBuffer = req.body;
+app.post('/process', upload.single('video'), (req, res) => {
+  // `req.file` contains the uploaded video (from FormData 'video' field)
+  if (!req.file) {
+    console.error('No video file uploaded');
+    return res.status(400).send('No video file uploaded');
+  }
+
+  const inputBuffer = req.file.buffer; // Get the Buffer from multer
   const inputFile = `temp_${Date.now()}.webm`;
   const outputFile = `output_${Date.now()}.webm`;
 
-  // Save the raw video temporarily
-  fs.writeFileSync(inputFile, inputBuffer);
+  console.log('Received video, size:', inputBuffer.length, 'bytes');
 
-  // Run FFmpeg to upscale FPS to 30
+  try {
+    // Save the raw video temporarily
+    fs.writeFileSync(inputFile, inputBuffer);
+    console.log('Input file saved:', inputFile);
+  } catch (err) {
+    console.error('Failed to write input file:', err);
+    return res.status(500).send('Failed to save input file');
+  }
+
   const ffmpeg = spawn('ffmpeg', [
     '-i', inputFile,
     '-vf', 'minterpolate=fps=30:mi_mode=mci',
@@ -32,24 +49,39 @@ app.post('/process', (req, res) => {
     outputFile
   ]);
 
+  let ffmpegOutput = '';
+  ffmpeg.stderr.on('data', (data) => {
+    ffmpegOutput += data.toString();
+  });
+
   ffmpeg.on('error', (err) => {
     console.error('FFmpeg error:', err);
-    fs.unlinkSync(inputFile);
+    console.error('FFmpeg output:', ffmpegOutput);
+    if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
     res.status(500).send('Processing failed');
   });
 
   ffmpeg.on('close', (code) => {
+    console.log('FFmpeg exited with code:', code);
     if (code === 0) {
-      const outputBuffer = fs.readFileSync(outputFile);
-      res.set('Content-Type', 'video/webm');
-      res.send(outputBuffer);
+      try {
+        const outputBuffer = fs.readFileSync(outputFile);
+        console.log('Output file size:', outputBuffer.length, 'bytes');
+        res.set('Content-Type', 'video/webm');
+        res.send(outputBuffer);
 
-      // Clean up temporary files
-      fs.unlinkSync(inputFile);
-      fs.unlinkSync(outputFile);
+        // Clean up
+        if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
+        if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
+      } catch (err) {
+        console.error('Failed to read output file:', err);
+        if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
+        if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
+        res.status(500).send('Failed to read output file');
+      }
     } else {
-      console.error('FFmpeg exited with code:', code);
-      fs.unlinkSync(inputFile);
+      console.error('FFmpeg output:', ffmpegOutput);
+      if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
       res.status(500).send('Processing failed');
     }
   });
