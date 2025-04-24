@@ -5,30 +5,27 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const app = express();
 
-// Enable CORS for your frontend origin
 app.use(cors({
   origin: 'https://assemblepoint.onrender.com',
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
 
-// Configure multer to handle multipart/form-data
 const upload = multer({
-  storage: multer.memoryStorage(), // Store file in memory as a Buffer
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 app.post('/process', upload.single('video'), (req, res) => {
-  console.log('Request body type:', typeof req.body); // Debug: Check type of req.body
-  console.log('Request file:', req.file); // Debug: Check if multer parsed the file
+  console.log('Request body type:', typeof req.body);
+  console.log('Request file:', req.file);
 
-  // Check if multer successfully parsed the file
   if (!req.file) {
     console.error('No video file uploaded, req.file is undefined');
     return res.status(400).send('No video file uploaded');
   }
 
-  const inputBuffer = req.file.buffer; // Should be a Buffer
+  const inputBuffer = req.file.buffer;
   const inputFile = `temp_${Date.now()}.webm`;
   const outputFile = `output_${Date.now()}.webm`;
 
@@ -44,9 +41,10 @@ app.post('/process', upload.single('video'), (req, res) => {
 
   const ffmpeg = spawn('ffmpeg', [
     '-i', inputFile,
-    '-vf', 'minterpolate=fps=30:mi_mode=mci',
+    '-vf', 'minterpolate=fps=24:mi_mode=mci', // Reduced to 24 FPS
     '-c:v', 'libvpx',
     '-b:v', '1M',
+    '-preset', 'fast', // Optimize for speed
     '-c:a', 'copy',
     outputFile
   ]);
@@ -54,6 +52,7 @@ app.post('/process', upload.single('video'), (req, res) => {
   let ffmpegOutput = '';
   ffmpeg.stderr.on('data', (data) => {
     ffmpegOutput += data.toString();
+    console.log('FFmpeg stderr:', data.toString()); // Log in real-time
   });
 
   ffmpeg.on('error', (err) => {
@@ -65,7 +64,7 @@ app.post('/process', upload.single('video'), (req, res) => {
 
   ffmpeg.on('close', (code) => {
     console.log('FFmpeg exited with code:', code);
-    if (code === 0) {
+    if (code === 0 && fs.existsSync(outputFile)) {
       try {
         const outputBuffer = fs.readFileSync(outputFile);
         console.log('Output file size:', outputBuffer.length, 'bytes');
@@ -82,7 +81,7 @@ app.post('/process', upload.single('video'), (req, res) => {
         res.status(500).send('Failed to read output file');
       }
     } else {
-      console.error('FFmpeg output:', ffmpegOutput);
+      console.error('FFmpeg failed or output file not created:', ffmpegOutput);
       if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
       res.status(500).send('Processing failed');
     }
