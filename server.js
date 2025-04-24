@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const multer = require('multer'); // Add multer
+const multer = require('multer');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const app = express();
@@ -19,20 +19,22 @@ const upload = multer({
 });
 
 app.post('/process', upload.single('video'), (req, res) => {
-  // `req.file` contains the uploaded video (from FormData 'video' field)
+  console.log('Request body type:', typeof req.body); // Debug: Check type of req.body
+  console.log('Request file:', req.file); // Debug: Check if multer parsed the file
+
+  // Check if multer successfully parsed the file
   if (!req.file) {
-    console.error('No video file uploaded');
+    console.error('No video file uploaded, req.file is undefined');
     return res.status(400).send('No video file uploaded');
   }
 
-  const inputBuffer = req.file.buffer; // Get the Buffer from multer
+  const inputBuffer = req.file.buffer; // Should be a Buffer
   const inputFile = `temp_${Date.now()}.webm`;
   const outputFile = `output_${Date.now()}.webm`;
 
-  console.log('Received video, size:', inputBuffer.length, 'bytes');
+  console.log('Received video, size:', inputBuffer.length, 'bytes, type:', typeof inputBuffer);
 
   try {
-    // Save the raw video temporarily
     fs.writeFileSync(inputFile, inputBuffer);
     console.log('Input file saved:', inputFile);
   } catch (err) {
