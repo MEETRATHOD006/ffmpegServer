@@ -1,7 +1,15 @@
 const express = require('express');
+const cors = require('cors'); // Add CORS package
 const { spawn } = require('child_process');
 const fs = require('fs');
 const app = express();
+
+// Enable CORS for your frontend origin
+app.use(cors({
+  origin: 'https://assemblepoint.onrender.com', // Allow only your frontend domain
+  methods: ['POST'], // Allow only POST requests
+  allowedHeaders: ['Content-Type'] // Allow Content-Type header for FormData
+}));
 
 // Middleware to handle raw video data
 app.use(express.raw({ type: 'application/octet-stream', limit: '50mb' }));
@@ -14,13 +22,13 @@ app.post('/process', (req, res) => {
   // Save the raw video temporarily
   fs.writeFileSync(inputFile, inputBuffer);
 
-  // Run FFmpeg to upscale FPS to 30 (adjust as needed)
+  // Run FFmpeg to upscale FPS to 30
   const ffmpeg = spawn('ffmpeg', [
     '-i', inputFile,
-    '-vf', 'minterpolate=fps=30:mi_mode=mci', // Interpolates to 30 FPS with motion compensation
+    '-vf', 'minterpolate=fps=30:mi_mode=mci',
     '-c:v', 'libvpx',
-    '-b:v', '1M', // Bitrate, adjust for quality
-    '-c:a', 'copy', // Copy audio without re-encoding
+    '-b:v', '1M',
+    '-c:a', 'copy',
     outputFile
   ]);
 
@@ -32,7 +40,6 @@ app.post('/process', (req, res) => {
 
   ffmpeg.on('close', (code) => {
     if (code === 0) {
-      // Read the processed file
       const outputBuffer = fs.readFileSync(outputFile);
       res.set('Content-Type', 'video/webm');
       res.send(outputBuffer);
